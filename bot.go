@@ -26,6 +26,9 @@ var msgRegex *regexp.Regexp = regexp.MustCompile(`^:(\w+)!\w+@\w+\.tmi\.twitch\.
 // command.
 var cmdRegex *regexp.Regexp = regexp.MustCompile(`^!(\w+)\s?(\w+)?`)
 
+// used for checking a message and seeing if first value is cheer value
+var cheerCheck = make([]string, 1)
+
 // PSTFormat is the format of dates
 const PSTFormat = "2 Jan 15:04:05"
 
@@ -88,45 +91,23 @@ func (bb *BasicBot) HandleChat() error {
 			return errors.New("bb.Bot.HandleChat: Failed to read from channel. Disconnected")
 		}
 		fmt.Printf("[%s] %s\n", timeStamp(), line)
+
 		if "PING :tmi.twitch.tv" == line {
 			// respond to PING message with a PONG message, to maintain the connection
 			bb.conn.Write([]byte("PONG :tmi.twitch.tv\r\n"))
 			continue
 		} else {
 			matches := msgRegex.FindStringSubmatch(line)
-			if nil != matches {
-				userName := matches[1]
+			if matches != nil {
 				msgType := matches[2]
 
 				switch msgType {
 				case "PRIVMSG":
-					msg := matches[3]
-					fmt.Printf("[%s] %s: %s\n", timeStamp(), userName, msg)
-
-					// parse commands from user message
-					cmdMatches := cmdRegex.FindStringSubmatch(msg)
-					if cmdMatches != nil {
-						cmd := cmdMatches[1]
-						// arg := cmdMatches[2]
-
-						// channel-owener specific commands
-						if userName == bb.Channel {
-							switch cmd {
-							case "tbdown":
-								fmt.Printf(
-									"[%s] Shutdown command received. Shutting down now...\n",
-									timeStamp(),
-								)
-								bb.Disconnect()
-								return nil
-
-							default:
-								fmt.Printf("%s command received", cmd)
-							}
-						}
-					}
+					handleChatPrivMsg(matches, bb)
 				default:
-					// do nothing
+					// see message type
+					// as more msg types come then the more this switch will grow
+					fmt.Println("DEFAULT:", msgType)
 				}
 			}
 
@@ -135,6 +116,47 @@ func (bb *BasicBot) HandleChat() error {
 
 	}
 
+}
+
+func handleChatPrivMsg(s []string, bb *BasicBot) {
+	userName := s[1]
+	msg := s[3]
+	cheerCheck = strings.Split(msg, " ")
+	// logging the message with timestamp
+	fmt.Printf("[%s] %s: %s\n", timeStamp(), userName, msg)
+	if cheerCheck[0] == "Cheer100" {
+		// This is working and will later be used to process song requests
+	}
+
+	// parse commands from user message
+	cmdMatches := cmdRegex.FindStringSubmatch(msg)
+	if cmdMatches != nil {
+		cmd := cmdMatches[1]
+		// arg := cmdMatches[2]
+		// fmt.Println("ARG----------------", arg)
+
+		// channel-owener specific commands
+		if userName == bb.Channel {
+			handleOwnerMessages(cmd, bb)
+		}
+	}
+}
+
+func handleOwnerMessages(cmd string, bb *BasicBot) {
+	switch cmd {
+	case "tbdown":
+		fmt.Printf(
+			"[%s] Shutdown command received. Shutting down now...\n",
+			timeStamp(),
+		)
+		bb.Disconnect()
+		return
+
+	case "repeat":
+		bb.Say(cmd)
+	default:
+		fmt.Printf("%s command received", cmd)
+	}
 }
 
 // Start starts a loop where the bot will attempt to connect to the Twitch channel
