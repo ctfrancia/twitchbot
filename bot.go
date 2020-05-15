@@ -34,8 +34,9 @@ const PSTFormat = "2 Jan 15:04:05"
 
 // BasicBot struct
 type BasicBot struct {
-	Channel     string
-	conn        net.Conn
+	Channel string
+	conn    net.Conn
+	// ws          *websocket.Conn
 	Credentials *OAuthCred
 	MsgRate     time.Duration
 	Name        string
@@ -43,6 +44,11 @@ type BasicBot struct {
 	PrivatePath string
 	Server      string
 	startTime   time.Time
+}
+
+// Ping is the struct for maintaining connection to WSS server
+type Ping struct {
+	Type string `json:"type"`
 }
 
 // OAuthCred struct
@@ -57,7 +63,34 @@ type TwitchBot interface {
 	HandleChat() error
 	JoinChannel()
 	ReadCredentials() error
+	HandleEvents()
 	Start()
+}
+
+// Start starts a loop where the bot will attempt to connect to the Twitch channel
+// it will continue to do so until told to shut down
+func (bb *BasicBot) Start() {
+	err := bb.ReadCredentials()
+	if err != nil {
+		fmt.Println(err)
+		fmt.Println("Aborting...")
+		return
+	}
+
+	for {
+		bb.Connect()
+		bb.JoinChannel()
+		bb.HandleEvents()
+		err = bb.HandleChat()
+		if err != nil {
+			// attempts to reconnect upon chat error
+			time.Sleep(1 * time.Second)
+			fmt.Println(err)
+			fmt.Println("Starting bot again...")
+		} else {
+			return
+		}
+	}
 }
 
 // Connect method for connecting to the twitch channel
@@ -71,9 +104,40 @@ func (bb *BasicBot) Connect() {
 		fmt.Printf("[%s] cannot connect to %s, retrying.\n", timeStamp(), bb.Server)
 		return
 	}
+	// https://37.14.165.59
+	// bb.ws, err = websocket.Dial("wss://pubsub-edge.twitch.tv", "", "https://")
+	// fmt.Println("=========================>", bb.ws)
+	go maintainWsConn()
 
+	if err != nil {
+		fmt.Printf("[%s] cannot connect to %s, retrying.\n", timeStamp(), bb.Server)
+		return
+	}
 	fmt.Printf("[%s] Connected to %s!\n", timeStamp(), bb.Server)
+	fmt.Println("HERE !!!!!!!!!!!!!!")
 	bb.startTime = time.Now()
+}
+
+var err error
+
+// HandleEvents listens to events such as subscribers/new or old, as well as bit usage
+func (bb *BasicBot) HandleEvents() {
+
+	// var msg = make([]byte, 512)
+
+	go func() {
+		for {
+			// line, err := bb.ws.Read(msg)
+			// fmt.Println("in Handle Events", line)
+			if err != nil {
+				bb.Disconnect()
+				fmt.Println("ERROR IN READING LINE FROM SOCKET", err)
+				// return errors.New("bb.Bot.HandleChat: Failed to read from channel. Disconnected")
+			}
+			// fmt.Printf("[%s] %s\n", timeStamp(), line)
+			// fmt.Println("in Handle Events", line)
+		}
+	}()
 }
 
 // HandleChat reads the messages of the channel
@@ -159,31 +223,6 @@ func handleOwnerMessages(cmd string, bb *BasicBot) {
 	}
 }
 
-// Start starts a loop where the bot will attempt to connect to the Twitch channel
-// it will continue to do so until told to shut down
-func (bb *BasicBot) Start() {
-	err := bb.ReadCredentials()
-	if err != nil {
-		fmt.Println(err)
-		fmt.Println("Aborting...")
-		return
-	}
-
-	for {
-		bb.Connect()
-		bb.JoinChannel()
-		err = bb.HandleChat()
-		if err != nil {
-			// attempts to reconnect upon chat error
-			time.Sleep(1 * time.Second)
-			fmt.Println(err)
-			fmt.Println("Starting bot again...")
-		} else {
-			return
-		}
-	}
-}
-
 // Say speaks to the channel
 func (bb *BasicBot) Say(msg string) error {
 	if msg == "" {
@@ -196,7 +235,7 @@ func (bb *BasicBot) Say(msg string) error {
 	return nil
 }
 
-// JoinChannel joines the requested channel
+// JoinChannel joins the requested channel
 func (bb *BasicBot) JoinChannel() {
 	fmt.Printf("[%s] Joining #%s...\n", timeStamp(), bb.Channel)
 	bb.conn.Write([]byte("PASS " + bb.Credentials.Password + "\r\n"))
@@ -230,6 +269,7 @@ func (bb *BasicBot) Disconnect() {
 	// upTime := time.Now().Sub(bb.startTime).Seconds()
 	fmt.Printf("[%s] Closed connection from %s | Live for:", timeStamp(), bb.Server)
 }
+
 func timeStamp() string {
 	return TimeStamp(PSTFormat)
 }
@@ -237,4 +277,13 @@ func timeStamp() string {
 // TimeStamp formats the time
 func TimeStamp(format string) string {
 	return time.Now().Format(format)
+}
+
+func maintainWsConn() {
+	// ping := `{ "type": "PING" }`
+	for {
+		fmt.Println("sending ping")
+
+		time.Sleep(time.Minute * 5)
+	}
 }
